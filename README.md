@@ -2,7 +2,7 @@
 
 A Databricks lakehouse (Delta Lake, bronze / silver / gold) that finds what drives late deliveries on an e-commerce marketplace and what late deliveries cost in customer reviews. It ends in a Tableau Public dashboard and a Power BI version, a statistical analysis and a recommendation for the operations manager.
 
-**Status:** analysis and dashboards (Tableau Public, Power BI) complete; report-generator agent (text-to-SQL, evaluated) complete; weekly brief ready to schedule
+**Status:** analysis and dashboards (Tableau Public, Power BI) complete; report-generator agent (text-to-SQL, evaluated) and weekly brief complete; brief not yet scheduled
 
 ## Business problem
 Marketplace operations cannot see which sellers, regions or periods cause late deliveries, and late deliveries hurt review scores and repeat purchases.
@@ -110,7 +110,7 @@ Ask a business question in plain English; the agent writes the SQL, runs it read
 - **Flow:** question -> LLM writes Spark SQL from the live table schema -> guardrail validator -> run -> one repair retry on error -> short answer written from the result rows -> faithfulness check (every number in the answer must exist in the result)
 - **Guardrails:** one SELECT/WITH statement only; writes, DDL and multiple statements are rejected; only the 11 gold tables are allow-listed; a row limit is added automatically
 - **Model:** Llama 3.3 70B (Databricks-hosted, called with `ai_query`, temperature 0). Free Edition does not allow the premium Claude/GPT endpoints.
-- **Weekly brief:** `09_weekly_brief.py` builds an executive summary from fixed, reviewed SQL (not model-written SQL) so a scheduled report is deterministic; the model only writes the narrative, and the same faithfulness check runs on it. Written and ready to schedule as a Databricks job; not yet scheduled.
+- **Weekly brief:** `09_weekly_brief.py` builds an executive summary from fixed, reviewed SQL (not model-written SQL) so a scheduled report is deterministic; the model only writes the narrative, and the same faithfulness check runs on it. Run end to end once on the gold tables (output: a markdown brief with a summary, six KPI sections and the SQL behind each); not yet scheduled as a job. Its faithfulness check ignores dates, IDs and "1-star" labels, so only reported figures are checked.
 
 ### Evaluation
 40 business questions (15 easy, 15 medium, 10 hard), each with a hand-written reference query. An answer counts as correct when its *result* matches the reference result (different SQL that returns the same answer is fine). Full detail in [docs/agent_evaluation.md](docs/agent_evaluation.md).
