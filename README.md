@@ -1,27 +1,123 @@
 # Shipment Delay Lakehouse
 
-A Databricks lakehouse (Delta Lake, bronze / silver / gold) that finds which sellers, regions and product categories drive late deliveries on a marketplace, and what late deliveries cost in customer reviews.
+A Databricks lakehouse (Delta Lake, bronze / silver / gold) that finds what drives late deliveries on an e-commerce marketplace and what late deliveries cost in customer reviews. It ends in dashboards (Tableau Public, Power BI), a statistical analysis and a recommendation for the operations manager.
 
-**Status:** in progress
+**Status:** analysis complete; dashboards and report-generator agent in progress
 
 ## Business problem
-Marketplace operations cannot see which sellers, regions or categories cause late deliveries, and late deliveries hurt review scores and repeat purchases. See [docs/problem_brief.md](docs/problem_brief.md).
+Marketplace operations cannot see which sellers, regions or periods cause late deliveries, and late deliveries hurt review scores and repeat purchases.
+
+- **Stakeholder:** logistics / marketplace operations manager
+- **Decision:** where to coach sellers, fix carrier lanes, and adjust delivery promises
+- **Metrics:** late rate (delivered after the estimated date, compared by calendar date), days late, review score
+
+## Key findings
+| Finding | Result |
+| --- | --- |
+| Delivered orders analysed | 96,470 (orders with a delivery date) |
+| Overall late rate | 6.8% (average delivery 12.5 days) |
+| Review score, on time vs late | 4.29 vs 2.27 stars; gap 2.02 (95% CI 1.98 to 2.06) |
+| 1-star reviews, on time vs late | 6.6% vs 53.8% |
+| Damage saturates after about a week | 1-3 days late: 3.29 stars; 4-7 days: 2.10; 8-14 days: 1.67; 15+ days: 1.72 |
+| Peak season (Nov-Dec) vs other months | 10.3% vs 6.2% late (odds ratio 1.74, 95% CI 1.63 to 1.85) |
+| Worst months | Nov 2017: 12.4% (904 of 7,288 orders); Feb 2018: 14.1%; Mar 2018: 18.96% (cause not identified from this data) |
+| Worst states by late rate | AL 21.4%, MA 17.4%, SE 15.2%, PI 13.9%, CE 13.8%, BA 12.2%, RJ 12.1% |
+| Biggest state by late volume | RJ: about 1,495 late orders, roughly a quarter of all late orders |
+| Seller concentration | 53 sellers (at least 30 orders and at least twice the overall late rate) ship 4.4% of orders but cause 11.2% of late deliveries; matching the average would avoid about 442 late orders (6.8% of all) |
+
+Late and on-time orders differ in more than lateness, so the review gap is an association, not proof of causation.
+
+## What drives lateness
+Logistic regression on 95,978 orders (odds ratios, 95% CI):
+
+| Factor | Odds ratio | 95% CI | Note |
+| --- | --- | --- | --- |
+| Peak season (Nov-Dec) | 1.74 | 1.63 to 1.85 | Largest effect; only one real peak in the data |
+| Distance (per 100 km) | 1.04 | 1.04 to 1.05 | Real but modest |
+| Package weight (per kg) | 1.02 | 1.01 to 1.03 | Small |
+| Order value (log) | 1.07 | 1.03 to 1.11 | Small |
+| Freight ratio | 1.09 | 0.99 to 1.20 | Not significant (p = 0.096) |
+| Multi-seller order | 0.14 | 0.08 to 0.24 | Implausibly protective; few such orders; not interpreted |
+
+Pseudo R-squared is 0.019: order attributes explain very little. Lateness is mostly seller-, carrier- and region-specific, and seasonal.
+
+## Is it a promise problem? (ETA check)
+- Average promises are already generous: Alagoas (AL) promised 33.2 days vs 24.5 actual, yet 21% of orders are late. The problem is the long tail: the 95th-percentile delay is 9 to 13 days in the worst states (AL, MA, CE 13; SE, RJ 12; PA 10; PI, BA 9).
+- Padding the ETA is not the fix: reaching 95% on time in AL would need about 13 extra days on a 33-day promise.
+- Peak season was a promise failure: Nov 2017 average promise stayed at 23.2 days (Oct: 23.7) while actual delivery rose from 11.7 to 15.1 days.
+
+| Period | Orders | Avg promised days | Avg actual days | Late rate | 95th pct delay (days) |
+| --- | --- | --- | --- | --- | --- |
+| Other months | 83,668 | 24.2 | 12.1 | 6.2% | 2 |
+| Peak (Nov-Dec) | 12,802 | 25.4 | 15.2 | 10.3% | 7 |
+
+## Recommendations
+1. **Peak-season promise and capacity:** widen the promise dynamically in Nov-Dec and add carrier capacity; the last peak was not adjusted for.
+2. **Tail-risk control in high-delay states:** escalate orders still in transit past a threshold and set carrier SLAs for AL, MA, CE, SE, BA and RJ lanes.
+3. **Seller coaching:** the 53 outlier sellers are a quick win (about 442 avoidable late orders) but only about 7% of the problem.
 
 ## Data
-[Olist Brazilian E-Commerce Public Dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) (9 CSV files). This is a proxy for a mid-size marketplace, so findings are illustrative.
+[Olist Brazilian E-Commerce Public Dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce): 9 CSV files, about 100K orders, 2016 to 2018. A proxy for a mid-size marketplace, so findings are illustrative.
+
+### Bronze row counts
+| Table | Rows |
+| --- | --- |
+| bronze_customers | 99,441 |
+| bronze_geolocation | 1,000,163 |
+| bronze_order_items | 112,650 |
+| bronze_order_payments | 103,886 |
+| bronze_order_reviews | 99,224 |
+| bronze_orders | 99,441 |
+| bronze_products | 32,951 |
+| bronze_sellers | 3,095 |
+| bronze_category_translation | 71 |
+
+### Data quality findings (silver layer, 22 checks logged to `silver_dq_log`)
+| Table | Issue | Count | Handling |
+| --- | --- | --- | --- |
+| orders | Status not delivered | 2,963 | Kept, flagged `is_delivered = false` |
+| orders | Delivered but no delivery date | 8 | Kept, flagged |
+| orders | Carrier pickup date before purchase | 166 | Kept, reviewed in analysis |
+| products | Missing category | 610 | Set to `unknown` |
+| products | Category with no English translation | 2 | Fall back to Portuguese name |
+| reviews | `review_id` repeated | 814 | One review per order |
+| reviews | Orders with more than one review | 547 | Kept the latest |
+| payments | Value of 0 or less | 9 | Flagged |
+| geolocation | Exact duplicate rows | 261,831 | Collapsed to 19,015 zip prefixes |
+
+No orphan keys, duplicate IDs or invalid prices were found.
 
 ## Architecture
-- **Bronze:** raw CSVs ingested as Delta tables with `ingested_at` and `source_file`
-- **Silver:** cleaned, deduplicated, validated tables
-- **Gold:** star schema and KPI tables (on-time rate, delay by seller / region / category)
-- **Serving:** Power BI and Tableau Public dashboards, delay-driver analysis, recommendation memo
+- **Bronze:** raw CSVs as Delta tables (all strings) with `ingested_at` and `source_file`
+- **Silver:** typed, deduplicated, standardized tables plus delay columns (`delivery_days`, `delay_days`, `is_late`) and a data-quality log
+- **Gold:** star schema (`dim_customer`, `dim_seller`, `dim_product`, `fact_orders`, `fact_order_items`) and KPI tables (seller, state, category, month, review-by-lateness, ETA gap)
+- **Serving:** Tableau Public and Power BI dashboards built from exported KPI tables
 
-## Results
-_To be added: key numbers, dashboard screenshots, recommendation._
+## Dashboards
+- Tableau Public: _link to be added_
+- Power BI: _screenshots to be added_
 
-## Repo layout
-- `notebooks/` Databricks notebooks (`01_bronze_ingest`, `02_silver_clean`, `03_gold_model`, ...)
-- `docs/` problem brief and data-issues log
+## Notebooks (run in order)
+1. `notebooks/01_bronze_ingest.py`
+2. `notebooks/02_silver_clean.py`
+3. `notebooks/03_gold_model.py`
+4. `notebooks/04_delay_analysis.py`
+5. `notebooks/05_eta_check.py`
+6. `notebooks/06_export_for_dashboards.py`
+
+Set `CATALOG`, `SCHEMA` and `VOLUME` at the top of each notebook (defaults: `workspace`, `olist`, `raw`).
+
+## Limitations
+- Proxy dataset from one marketplace; findings are illustrative, not company data.
+- Associations, not causal effects.
+- Only one real peak season (Nov 2017), so season is confounded with fast growth.
+- The Feb and Mar 2018 spikes are unexplained.
+- Data ends in August 2018, so the last months are incomplete and their low late rates should not be read as improvement.
+- Seller-customer distance uses zip-prefix centroids, so it is approximate.
+- Only delivered orders with a delivery date are in the late-rate figures.
 
 ## Tech
-Databricks, Delta Lake, PySpark, Spark SQL, Power BI, Tableau Public
+Databricks (serverless), Delta Lake, PySpark, Spark SQL, statsmodels, Tableau Public, Power BI
+
+## Next
+Report-generator agent (text-to-SQL with read-only guardrails, evaluation set and scheduled executive brief) on top of the gold tables.
