@@ -2,7 +2,7 @@
 
 A Databricks lakehouse (Delta Lake, bronze / silver / gold) that finds what drives late deliveries on an e-commerce marketplace and what late deliveries cost in customer reviews. It ends in a Tableau Public dashboard and a Power BI version, a statistical analysis and a recommendation for the operations manager.
 
-**Status:** analysis and dashboards (Tableau Public, Power BI) complete; report-generator agent in progress
+**Status:** analysis and dashboards (Tableau Public, Power BI) complete; report-generator agent (text-to-SQL, evaluated) complete; weekly brief ready to schedule
 
 ## Business problem
 Marketplace operations cannot see which sellers, regions or periods cause late deliveries, and late deliveries hurt review scores and repeat purchases.
@@ -92,6 +92,7 @@ No orphan keys, duplicate IDs or invalid prices were found.
 - **Silver:** typed, deduplicated, standardized tables plus delay columns (`delivery_days`, `delay_days`, `is_late`) and a data-quality log
 - **Gold:** star schema (`dim_customer`, `dim_seller`, `dim_product`, `fact_orders`, `fact_order_items`) and KPI tables (seller, state, category, month, review-by-lateness, ETA gap)
 - **Serving:** Tableau Public dashboard and a Power BI version, built from exported KPI tables
+- **Agent:** guardrailed text-to-SQL report agent and a weekly executive brief over the gold tables
 
 ## Dashboards
 - Tableau Public: [Shipment Delay Lakehouse dashboard](https://public.tableau.com/app/profile/rutwij.thorat/viz/ShipmentDelayLakehouse/Dashboard1)
@@ -103,6 +104,30 @@ No orphan keys, duplicate IDs or invalid prices were found.
 
 ![Power BI dashboard](powerbi_dashboard.png)
 
+## Report agent (text-to-SQL over the gold tables)
+Ask a business question in plain English; the agent writes the SQL, runs it read-only, and answers using only the numbers returned. The SQL is shown with every answer so a person can audit it.
+
+- **Flow:** question -> LLM writes Spark SQL from the live table schema -> guardrail validator -> run -> one repair retry on error -> short answer written from the result rows -> faithfulness check (every number in the answer must exist in the result)
+- **Guardrails:** one SELECT/WITH statement only; writes, DDL and multiple statements are rejected; only the 11 gold tables are allow-listed; a row limit is added automatically
+- **Model:** Llama 3.3 70B (Databricks-hosted, called with `ai_query`, temperature 0). Free Edition does not allow the premium Claude/GPT endpoints.
+- **Weekly brief:** `09_weekly_brief.py` builds an executive summary from fixed, reviewed SQL (not model-written SQL) so a scheduled report is deterministic; the model only writes the narrative, and the same faithfulness check runs on it. Written and ready to schedule as a Databricks job; not yet scheduled.
+
+### Evaluation
+40 business questions (15 easy, 15 medium, 10 hard), each with a hand-written reference query. An answer counts as correct when its *result* matches the reference result (different SQL that returns the same answer is fine). Full detail in [docs/agent_evaluation.md](docs/agent_evaluation.md).
+
+| | Run 1 (baseline) | Run 2 (after fixes) |
+| --- | --- | --- |
+| Execution accuracy, 40 questions | 57.5% (23/40) | 82.5% (33/40) |
+| Easy / medium / hard | 47% / 87% / 30% | 87% / 93% / 60% |
+| Valid SQL | 95% | 100% |
+| Answer faithfulness | 45% | 84% |
+| Held-out set (10 new questions, never used for tuning) | not run | 10/10 |
+
+- **What the baseline showed:** most misses were fixable. The model formatted rates as text (`CONCAT(ROUND(...))`), then sorted by that text and returned the wrong state; it multiplied by 100 inconsistently; my validator wrongly rejected `EXTRACT(YEAR FROM month)`; and my faithfulness check counted numbers from the question itself as invented.
+- **What I changed:** prompt rules (raw numeric output, no aliases that shadow columns, count orders with `COUNT(DISTINCT order_id)`, rank in a subquery), the validator, and the faithfulness check. Because that used the same 40 questions, I wrote 10 held-out questions afterwards as the cleaner estimate. Ten questions is a small sample (10/10 is consistent with a true rate anywhere above roughly 70%), so treat it as a sanity check, not a guarantee.
+- **Remaining 7 misses (run 2):** three are genuine reasoning errors (two rate questions where the model divided a count by itself and returned 100%, and one sign error on "lower by"); one is an ambiguous reference (order-level vs item-level average delivery days, where the model's choice is defensible); three return the right values but in a different shape or date format (two of these are a scorer issue, fixed in the notebook but not re-run).
+- **Guardrail test:** 6 adversarial prompts (drop, delete, update, create, a prompt-injection attempt, and a request for a non-gold table). Five were stopped by the validator. The sixth ("show me the silver_customers table") passed the validator because the model answered from an allowed table instead. No gold table changed (row counts identical before and after).
+
 ## Notebooks (run in order)
 1. `notebooks/01_bronze_ingest.py`
 2. `notebooks/02_silver_clean.py`
@@ -110,6 +135,9 @@ No orphan keys, duplicate IDs or invalid prices were found.
 4. `notebooks/04_delay_analysis.py`
 5. `notebooks/05_eta_check.py`
 6. `notebooks/06_export_for_dashboards.py`
+7. `notebooks/07_agent_core.py` (agent definitions; run through 08)
+8. `notebooks/08_agent_eval.py` (demo, 40-question evaluation, held-out set, guardrail test)
+9. `notebooks/09_weekly_brief.py` (weekly executive brief)
 
 Set `CATALOG`, `SCHEMA` and `VOLUME` at the top of each notebook (defaults: `workspace`, `olist`, `raw`).
 
@@ -121,9 +149,10 @@ Set `CATALOG`, `SCHEMA` and `VOLUME` at the top of each notebook (defaults: `wor
 - Data ends in August 2018, so the last months are incomplete and their low late rates should not be read as improvement.
 - Seller-customer distance uses zip-prefix centroids, so it is approximate.
 - Only delivered orders with a delivery date are in the late-rate figures.
+- Agent evaluation: one author wrote the questions and reference queries, one run per version at temperature 0, held-out set of only 10; the SQL validator is regex-based (production protection should be a read-only role with grants on the gold tables only).
 
 ## Tech
-Databricks (serverless), Delta Lake, PySpark, Spark SQL, statsmodels, Tableau Public, Power BI
+Databricks (serverless), Delta Lake, PySpark, Spark SQL, statsmodels, Databricks Foundation Model API (Llama 3.3 70B via ai_query), Tableau Public, Power BI
 
 ## Next
-Report-generator agent (text-to-SQL with read-only guardrails, evaluation set and scheduled executive brief) on top of the gold tables.
+Re-run the evaluation with the fixed scorer; schedule the weekly brief as a Databricks job; run the agent under a read-only role limited to the gold tables.
