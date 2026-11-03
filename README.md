@@ -1,8 +1,8 @@
 # Shipment Delay Lakehouse
 
-A Databricks lakehouse (Delta Lake, bronze / silver / gold) that finds what drives late deliveries on an e-commerce marketplace and what late deliveries cost in customer reviews. It ends in dashboards (Tableau Public, Power BI), a statistical analysis and a recommendation for the operations manager.
+A Databricks lakehouse (Delta Lake, bronze / silver / gold) that finds what drives late deliveries on an e-commerce marketplace and what late deliveries cost in customer reviews. It ends in a Tableau Public dashboard (a Power BI version is planned), a statistical analysis and a recommendation for the operations manager.
 
-**Status:** analysis complete; dashboards and report-generator agent in progress
+**Status:** analysis and Tableau Public dashboard complete; report-generator agent in progress
 
 ## Business problem
 Marketplace operations cannot see which sellers, regions or periods cause late deliveries, and late deliveries hurt review scores and repeat purchases.
@@ -91,11 +91,15 @@ No orphan keys, duplicate IDs or invalid prices were found.
 - **Bronze:** raw CSVs as Delta tables (all strings) with `ingested_at` and `source_file`
 - **Silver:** typed, deduplicated, standardized tables plus delay columns (`delivery_days`, `delay_days`, `is_late`) and a data-quality log
 - **Gold:** star schema (`dim_customer`, `dim_seller`, `dim_product`, `fact_orders`, `fact_order_items`) and KPI tables (seller, state, category, month, review-by-lateness, ETA gap)
-- **Serving:** Tableau Public and Power BI dashboards built from exported KPI tables
+- **Serving:** Tableau Public dashboard (Power BI planned) built from exported KPI tables
 
 ## Dashboards
-- Tableau Public: _link to be added_
-- Power BI: _screenshots to be added_
+- Tableau Public: [Shipment Delay Lakehouse dashboard](https://public.tableau.com/app/profile/rutwij.thorat/viz/ShipmentDelayLakehouse/Dashboard1)
+  - Monthly late rate, with the Nov 2017 (12.4%) and Mar 2018 (18.96%) peaks annotated
+  - Late rate by customer state (states with 100+ delivered orders)
+  - Average review score by how late the order was
+  - The 15 outlier sellers with the most late orders (30+ orders and a late rate of 13.4% or more)
+- Power BI: planned
 
 ## Notebooks (run in order)
 1. `notebooks/01_bronze_ingest.py`
