@@ -99,7 +99,7 @@ No orphan keys, duplicate IDs or invalid prices were found.
   - Late rate by customer state (states with 100+ delivered orders)
   - Average review score by how late the order was
   - The 15 outlier sellers with the most late orders (30+ orders and a late rate of 13.4% or more)
-- Power BI: the same four views, built from the exported KPI tables (screenshot below)
+- Power BI: the same four views, built from the exported KPI tables. Report file: [docs/shipment_delay_lakehouse.pbix](docs/shipment_delay_lakehouse.pbix) (open in Power BI Desktop); screenshot below
 
 ![Power BI dashboard](powerbi_dashboard.png)
 
