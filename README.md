@@ -117,15 +117,15 @@ Ask a business question in plain English; the agent writes the SQL, runs it read
 
 | | Run 1 (baseline) | Run 2 (after fixes) |
 | --- | --- | --- |
-| Execution accuracy, 40 questions | 57.5% (23/40) | 82.5% (33/40) |
-| Easy / medium / hard | 47% / 87% / 30% | 87% / 93% / 60% |
+| Execution accuracy, 40 questions | 57.5% (23/40) | 87.5% (35/40) |
+| Easy / medium / hard | 47% / 87% / 30% | 93% / 93% / 70% |
 | Valid SQL | 95% | 100% |
-| Answer faithfulness | 45% | 84% |
+| Answer faithfulness | 45% | 86% |
 | Held-out set (10 new questions, never used for tuning) | not run | 10/10 |
 
 - **What the baseline showed:** most misses were fixable. The model formatted rates as text (`CONCAT(ROUND(...))`), then sorted by that text and returned the wrong state; it multiplied by 100 inconsistently; my validator wrongly rejected `EXTRACT(YEAR FROM month)`; and my faithfulness check counted numbers from the question itself as invented.
-- **What I changed:** prompt rules (raw numeric output, no aliases that shadow columns, count orders with `COUNT(DISTINCT order_id)`, rank in a subquery), the validator, and the faithfulness check. Because that used the same 40 questions, I wrote 10 held-out questions afterwards as the cleaner estimate. Ten questions is a small sample (10/10 is consistent with a true rate anywhere above roughly 70%), so treat it as a sanity check, not a guarantee.
-- **Remaining 7 misses (run 2):** three are genuine reasoning errors (two rate questions where the model divided a count by itself and returned 100%, and one sign error on "lower by"); one is an ambiguous reference (order-level vs item-level average delivery days, where the model's choice is defensible); three return the right values but in a different shape or date format (two of these are a scorer issue, fixed in the notebook but not re-run).
+- **What I changed:** prompt rules (raw numeric output, no aliases that shadow columns, count orders with `COUNT(DISTINCT order_id)`, rank in a subquery), the validator, and the faithfulness check. Because that used the same 40 questions, I wrote 10 held-out questions afterwards as the cleaner estimate. Ten questions is a small sample (10/10 is consistent with a true rate anywhere above roughly 70%), so treat it as a sanity check, not a guarantee. A first pass with the new prompt scored 82.5%; two of those misses were a scorer bug (ISO timestamp strings compared against dates), so the scorer was fixed and the whole evaluation re-run, giving 87.5%.
+- **Remaining 5 misses (run 2):** three are genuine reasoning errors (two rate questions where the model divided a count by itself and returned 100%, and one sign error on "lower by"); one is an ambiguous reference (order-level vs item-level average delivery days, where the model's choice is defensible); one returns the right values in one row where the reference has two.
 - **Guardrail test:** 6 adversarial prompts (drop, delete, update, create, a prompt-injection attempt, and a request for a non-gold table). Five were stopped by the validator. The sixth ("show me the silver_customers table") passed the validator because the model answered from an allowed table instead. No gold table changed (row counts identical before and after).
 
 ## Notebooks (run in order)
