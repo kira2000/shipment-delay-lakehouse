@@ -2,7 +2,7 @@
 
 A Databricks lakehouse (Delta Lake, bronze / silver / gold) that finds what drives late deliveries on an e-commerce marketplace and what late deliveries cost in customer reviews. It ends in a Tableau Public dashboard and a Power BI version, a statistical analysis and a recommendation for the operations manager.
 
-**Status:** analysis and dashboards (Tableau Public, Power BI) complete; report-generator agent (text-to-SQL, evaluated) and weekly brief complete; gold-layer data-quality suite (15 tests) run and passing; job scheduling in progress
+**Status:** analysis and dashboards (Tableau Public, Power BI) complete; report-generator agent (text-to-SQL, evaluated) and weekly brief complete; gold-layer data-quality suite (15 tests) passing; weekly Databricks Job (quality gate, then brief) set for Mondays 08:00 Central, first manual run succeeded
 
 ## Business problem
 Marketplace operations cannot see which sellers, regions or periods cause late deliveries, and late deliveries hurt review scores and repeat purchases.
@@ -110,11 +110,13 @@ Ask a business question in plain English; the agent writes the SQL, runs it read
 - **Flow:** question -> LLM writes Spark SQL from the live table schema -> guardrail validator -> run -> one repair retry on error -> short answer written from the result rows -> faithfulness check (every number in the answer must exist in the result)
 - **Guardrails:** one SELECT/WITH statement only; writes, DDL and multiple statements are rejected; only the 11 gold tables are allow-listed; a row limit is added automatically
 - **Model:** Llama 3.3 70B (Databricks-hosted, called with `ai_query`, temperature 0). Free Edition does not allow the premium Claude/GPT endpoints.
-- **Gold data-quality gate:** `10_data_quality_tests.py` runs 15 SQL tests (13 blocking, 2 warning) against the gold tables (row counts, key uniqueness, rate bounds, cross-table reconciliation) and appends each run to `dq_results`. Latest run: 15/15 passed, 0 warnings. An error-severity failure raises, so a downstream task would not run. See `docs/pipeline_job.md`.
+- **Gold data-quality gate:** `10_data_quality_tests.py` runs 15 SQL tests (13 blocking, 2 warning) against the gold tables (row counts, key uniqueness, rate bounds, cross-table reconciliation) and appends each run to `dq_results`. Latest run: 15/15 passed, 0 warnings. An error-severity failure raises, so the downstream task would not run. Both notebooks run as a two-task Databricks Job (`data_quality_gate`, then `weekly_brief`) scheduled for Mondays 08:00 Central with an email on failure; the first manual run succeeded in 1m 33s. See `docs/pipeline_job.md`.
 
 ![dq_results](docs/screenshots/dq_results.png)
 
-- **Weekly brief:** `09_weekly_brief.py` builds an executive summary from fixed, reviewed SQL (not model-written SQL) so a scheduled report is deterministic; the model only writes the narrative, and the same faithfulness check runs on it. Run end to end once on the gold tables (output: a markdown brief with a summary, six KPI sections and the SQL behind each); not yet scheduled as a job. Its faithfulness check ignores dates, IDs and "1-star" labels, so only reported figures are checked.
+![Databricks Job run](docs/screenshots/job_run.png)
+
+- **Weekly brief:** `09_weekly_brief.py` builds an executive summary from fixed, reviewed SQL (not model-written SQL) so a scheduled report is deterministic; the model only writes the narrative, and the same faithfulness check runs on it. Run end to end once on the gold tables (output: a markdown brief with a summary, six KPI sections and the SQL behind each); now run as the second task of the weekly Job. Its faithfulness check ignores dates, IDs and "1-star" labels, so only reported figures are checked.
 
 ### Evaluation
 40 business questions (15 easy, 15 medium, 10 hard), each with a hand-written reference query. An answer counts as correct when its *result* matches the reference result (different SQL that returns the same answer is fine). Full detail in [docs/agent_evaluation.md](docs/agent_evaluation.md).
@@ -159,4 +161,4 @@ Set `CATALOG`, `SCHEMA` and `VOLUME` at the top of each notebook (defaults: `wor
 Databricks (serverless), Delta Lake, PySpark, Spark SQL, statsmodels, Databricks Foundation Model API (Llama 3.3 70B via ai_query), Tableau Public, Power BI
 
 ## Next
-Re-run the evaluation with the fixed scorer; schedule the weekly brief as a Databricks job; run the agent under a read-only role limited to the gold tables.
+Re-run the evaluation with the fixed scorer; run the agent under a read-only role limited to the gold tables.
